@@ -17,7 +17,7 @@ Module Module1
         Dim verFieldIndex, textFieldIndex, dateTimeField, wsMachName, wsFolderName, wsFN, wsDate,
             wsLoadTime, wsCStart, wsCStop, wsCFinish, wsFinishCol, wsTimeCutting,
             wsLoadToCut, wsDurationLoaded, numFiles, firstRow As Integer
-        Dim LogFilePath, ExcelFileName As String
+        Dim LogFilePath, ExcelFileName, Omax1Location, Omax2Location, ExcelFilePath, outputFilePath As String
         Dim ver18, pathStarted, partFnInd, cutStartInd, pathFinInd, cutPauseInd, cutStopInd, dryRunInd As String
         Dim beginParse, foundFileName, prevString, cutStarted, cutStopped, pathFinished As String
         Dim objExcelApp As Object
@@ -80,6 +80,7 @@ Module Module1
         ' add line to make ws the active sheet
         objExcelApp.Visible = True
 
+        readIniFile(Omax1Location, Omax2Location, ExcelFilePath, outputFilePath)
 
         'Start adding data on the first empty ROW
         wsCurRow = ws.Range("A1").CurrentRegion.Rows.Count
@@ -462,6 +463,49 @@ Module Module1
                 End If
         End Select
         Return Strings.Left(myStr, colonIdx)
+    End Function
+
+    Private Function readIniFile(Omax1Location As String, Omax2Location As String,
+                                 ExcelFilePath As String, outputFilePath As String)
+
+        Using MyReader As New FileIO.TextFieldParser("C:\Users\Dan\Source\Repos\UpdateOmaxHistory\UpdateOmax.txt")
+            MyReader.TextFieldType = FileIO.FieldType.Delimited
+            MyReader.SetDelimiters("|")
+
+            Dim fieldIdx, valueIdx As Int16
+            Dim currentRow As String()
+            Dim machine1, machine2, ExcelFile, outputFile As String
+
+            machine1 = "machine 1 history file location"
+            machine2 = "machine 2 history file location"
+            ExcelFile = "Excel file location"
+
+            fieldIdx = 0
+            valueIdx = 1
+
+            While Not MyReader.EndOfData
+                Dim currentField As String
+
+                Try
+                    currentRow = MyReader.ReadFields()
+                    currentField = currentRow(valueIdx)
+                Catch ex As FileIO.MalformedLineException
+                    MsgBox("Line " & ex.Message &
+                    "is not valid and will be skipped.")
+                End Try
+                Select Case currentRow(fieldIdx)
+                    Case machine1
+                        Omax1Location = currentField
+                    Case machine2
+                        Omax2Location = currentField
+                    Case ExcelFile
+                        ExcelFilePath = currentField
+                End Select
+
+            End While
+            MyReader.Close()
+        End Using
+
     End Function
 
     Private Sub initFields()
