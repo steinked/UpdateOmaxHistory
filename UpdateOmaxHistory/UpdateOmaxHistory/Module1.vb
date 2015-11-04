@@ -1,8 +1,10 @@
 ﻿Imports System.IO, System.Text.RegularExpressions
+Imports Microsoft.Office.Interop.Excel
+Imports Microsoft.Office.Interop
 
 Module Module1
 
-    Dim wsMaterial, wsMaterialCategory, wsMachineability, wsThickness, wsPierces,
+    Dim wsMachineName, wsMaterial, wsMaterialCategory, wsMachineability, wsThickness, wsPierces,
         wsCutModel, wsEtchSpeed, wsEstTime, wsEstCost, wsEstAbrasive, wsTPLen,
         wsCutLen, wsTTSCutting, wsTTSTraversing, wsTTSRelayCycles, wsTTSEtching As Integer
 
@@ -14,14 +16,19 @@ Module Module1
         Dim curFileInfo As IO.FileInfo
         Dim files As FileSystemInfo()
         Dim foundFiles As System.Collections.ObjectModel.ReadOnlyCollection(Of String)
-        Dim verFieldIndex, textFieldIndex, dateTimeField, wsMachName, wsFolderName, wsFN, wsDate,
+        Dim howManyMachines, verFieldIndex, textFieldIndex, dateTimeField, wsMachName, wsFolderName, wsFN, wsDate,
             wsLoadTime, wsCStart, wsCStop, wsCFinish, wsFinishCol, wsTimeCutting,
-            wsLoadToCut, wsDurationLoaded, numFiles, firstRow As Integer
-        Dim LogFilePath, ExcelFileName, Omax1Location, Omax2Location, ExcelFilePath, outputFilePath As String
+            wsLoadToCut, wsDurationLoaded, numFiles, lastMachineRow As Integer
+        Dim ExcelFilePath As String = " "
+        Dim outputFilePath As String = " "
+        Dim machineTextName As String
         Dim ver18, pathStarted, partFnInd, cutStartInd, pathFinInd, cutPauseInd, cutStopInd, dryRunInd As String
         Dim beginParse, foundFileName, prevString, cutStarted, cutStopped, pathFinished As String
+        Dim LogFileLocations(10) As String
         Dim objExcelApp As Object
         Dim wb, ws As Object
+
+
         Dim newFileLoop As Boolean
         'wsCurRow is the current row of the data store worksheet
         'It is incremented each time we start to parse another cut (aka path)
@@ -39,11 +46,10 @@ Module Module1
         'wb = objExcelApp.Workbooks(SpreadsheetNameBox.Text)
 
         numFiles = 0
+        howManyMachines = 0
         verFieldIndex = 1
         textFieldIndex = 2
         dateTimeField = 0
-        LogFilePath = "C:\Users\Public\OMAX_Corporation\AllUserData\History\history subset\subset"
-        ExcelFileName = "C:\Users\Dan\Documents\autoHistory.xlsx"
         ver18 = "ver 18.0"
         pathStarted = "Path started with the following setup:"
         partFnInd = "Part File Name: "
@@ -74,214 +80,253 @@ Module Module1
         'initialize field indexes (declared in Public Class above)
         initFields()
 
-        wb = objExcelApp.Workbooks.Open(ExcelFileName, ReadOnly:=False)
+        readIniFile(howManyMachines, LogFileLocations, ExcelFilePath, outputFilePath)
+
+        wb = objExcelApp.Workbooks.Open(ExcelFilePath, ReadOnly:=False)
         wb.activate
         ws = wb.activesheet
         ' add line to make ws the active sheet
         objExcelApp.Visible = True
 
-        readIniFile(Omax1Location, Omax2Location, ExcelFilePath, outputFilePath)
+        'Run through this loop once for every machine (because log files are in different folders
+        For machineLoop = 0 To howManyMachines - 1
 
-        'Start adding data on the first empty ROW
-        wsCurRow = ws.Range("A1").CurrentRegion.Rows.Count
-            firstRow = wsCurRow + 1
-            lastDate = CDate(ws.Cells(wsCurRow, wsDate).value)
-
-        'THIS BEGINS THE MAJOR LOOP - going through each history file
-        'First step is to get a list of all history files in the history file directory
-        'and use the Order By to order them by the last time they were written to.
-
-        'WAS files = New DirectoryInfo(LogFilePath.Text).GetFileSystemInfos("?=-Omax-1*")
-        'changed because some omax2 files starting 10/23/2015 are H=-Aalto and H=-Czar, etc
+            'need to add new code to handle looping through multiple time
+            'Sort data first by column a (1) and then by e (load time)
 
 
-        'Need to get files since the last date in the Excel spreadhseet
-        files = New DirectoryInfo(LogFilePath).GetFileSystemInfos("?=-*")
-        Dim theFiles = From file In files Order By file.LastWriteTime
-                       Where file.LastWriteTime.Date > lastDate.Date Select file.FullName
+            'Start adding data on the first empty ROW
+            wsCurRow = ws.Range("A1").CurrentRegion.Rows.Count
+            machineTextName = "Omax" & Str(machineLoop + 1)
+            lastMachineRow = getLastOccurranceRow(ws, machineTextName, "a:a")
 
-        'WAS files = New DirectoryInfo(LogFilePath.Text).GetFileSystemInfos("?=-Omax-1*")
-        'changed because some omax2 files starting 10/23/2015 are H=-Aalto and H=-Czar, etc
-        foundFiles = My.Computer.FileSystem.GetFiles(
-            LogFilePath, FileIO.SearchOption.SearchTopLevelOnly, "?=-*")
+            'find lastdate for current machine we are looping for, however we still
+            'append new data at the end of the sheet.  Sort at end of this
+            'puts it all back in order
 
-        For Each foundFile As String In theFiles
-            curFileInfo = My.Computer.FileSystem.GetFileInfo(foundFile)
+            lastDate = CDate(ws.Cells(lastMachineRow, wsDate).value)
 
-            newFileLoop = True
-            numFiles = numFiles + 1
+            'THIS BEGINS THE MAJOR LOOP - going through each history file
+            'First step is to get a list of all history files in the history file directory
+            'and use the Order By to order them by the last time they were written to.
 
-            'The nex big chunk of code parses through each individual file
-            Using MyReader As New FileIO.TextFieldParser(foundFile)
-                MyReader.TextFieldType = FileIO.FieldType.Delimited
-                MyReader.SetDelimiters("|")
+            'WAS files = New DirectoryInfo(LogFilePath.Text).GetFileSystemInfos("?=-Omax-1*")
+            'changed because some omax2 files starting 10/23/2015 are H=-Aalto and H=-Czar, etc
 
-                Dim currentRow As String()
-                Dim state As String : state = beginParse
-                Dim myDateTime As String
-                Dim myDateValue As Date
-                Dim newtime As New Date
-                Dim timeDiff As TimeSpan
+            'History files for the Omax machines (currently 2) are stored in separate directories
+            'Need to get files since the last date in the Excel spreadhseet
+            files = New DirectoryInfo(LogFileLocations(machineLoop)).GetFileSystemInfos("?=-*")
+            Dim theFiles = From file In files Order By file.LastWriteTime
+                           Where file.LastWriteTime.Date > lastDate.Date Select file.FullName
 
-                While Not MyReader.EndOfData
-                    Dim currentField As String
+            'WAS files = New DirectoryInfo(LogFilePath.Text).GetFileSystemInfos("?=-Omax-1*")
+            'changed because some omax2 files starting 10/23/2015 are H=-Aalto and H=-Czar, etc
+            foundFiles = My.Computer.FileSystem.GetFiles(
+                LogFileLocations(machineLoop), FileIO.SearchOption.SearchTopLevelOnly, "?=-*")
 
-                    Try
-                        currentRow = MyReader.ReadFields()
-                        currentField = currentRow(textFieldIndex)
-                    Catch ex As FileIO.MalformedLineException
-                        MsgBox("Line " & ex.Message &
-                        "is not valid and will be skipped.")
-                    End Try
+            For Each foundFile As String In theFiles
+                curFileInfo = My.Computer.FileSystem.GetFileInfo(foundFile)
 
-                    'Use ParseDateTime to remove the colon so date.Parse can read date/time
-                    myDateTime = ParseDateTime(currentRow(dateTimeField))
-                    myDateValue = Date.Parse(myDateTime)
+                newFileLoop = True
+                numFiles = numFiles + 1
 
-                    If (myDateValue.Date > lastDate.Date) Then
+                'The nex big chunk of code parses through each individual file
+                Using MyReader As New FileIO.TextFieldParser(foundFile)
+                    MyReader.TextFieldType = FileIO.FieldType.Delimited
+                    MyReader.SetDelimiters("|")
 
-                        'This is the state machine.  Search for different
-                        'string depending on the state we are in
-                        Select Case state
-                            Case beginParse
-                                'Reset to 0.  This is used in the rare case we have a 
-                                'start->manual stop and another start-> manual stop in a 
-                                'row without loading a new file.  The last cut on file 
-                                '5005A01.ORD is an example of this.
-                                afterCutStopLineCount = 0
+                    Dim currentRow As String()
+                    Dim state As String : state = beginParse
+                    Dim myDateTime As String
+                    Dim myDateValue As Date
+                    Dim newtime As New Date
+                    Dim timeDiff As TimeSpan
 
-                                If MyRegExMatcher(partFnInd, currentField) Then
+                    While Not MyReader.EndOfData
+                        Dim currentField As String
 
-                                    state = foundFileName
+                        Try
+                            currentRow = MyReader.ReadFields()
+                            currentField = currentRow(textFieldIndex)
+                        Catch ex As FileIO.MalformedLineException
+                            MsgBox("Line " & ex.Message &
+                            "is not valid and will be skipped.")
+                        End Try
 
-                                    wsCurRow = wsCurRow + 1
+                        'Use ParseDateTime to remove the colon so date.Parse can read date/time
+                        myDateTime = ParseDateTime(currentRow(dateTimeField))
+                        myDateValue = Date.Parse(myDateTime)
 
-                                    ws.cells(wsCurRow, wsFN).value =
-                                          Strings.Right(currentField, currentField.Length -
-                                                           currentField.LastIndexOf(":") - 1)
-                                    ws.cells(wsCurRow, wsFolderName).value = foundFile
+                        If (myDateValue.Date > lastDate.Date) Then
 
-                                    ws.cells(wsCurRow, wsLoadTime).value = myDateValue
-                                    ws.cells(wsCurRow, wsDate).value = myDateValue.Date
+                            'This is the state machine.  Search for different
+                            'string depending on the state we are in
+                            Select Case state
+                                Case beginParse
+                                    'Reset to 0.  This is used in the rare case we have a 
+                                    'start->manual stop and another start-> manual stop in a 
+                                    'row without loading a new file.  The last cut on file 
+                                    '5005A01.ORD is an example of this.
+                                    afterCutStopLineCount = 0
 
-                                    savedLoadTime = myDateValue
-                                End If
-                            Case foundFileName
-                                'We are capturing a LOT of data in this section.
-                                'First things like material, machineability, etc.
-                                'Finally when we find the cutStartInd we change state
-                                Dim strToConvert As String
-                                Dim myDec As Decimal
+                                    If MyRegExMatcher(partFnInd, currentField) Then
 
-                                If MyRegExMatcher("Material:", currentField) Then
-                                    ws.cells(wsCurRow, wsMaterial).value = getFieldInfo(wsMaterial, currentField) 'parse value of this field
-                                ElseIf MyRegExMatcher("MaterialCategory:", currentField) Then
-                                    ws.cells(wsCurRow, wsMaterialCategory).value = getFieldInfo(wsMaterialCategory, currentField) 'parse value of this field
-                                    'The space after the : below is important
-                                    'On some OMAX-2 files they have <Enter Custom Ceramic/Carbide Machineability:>
-                                    'and we DON'T want to try to capture in that scenario
-                                ElseIf MyRegExMatcher("Machineability: ", currentField) Then
-                                    'If Not MyRegExMatcher("Machineability:>", currentField) Then
-                                    'ws.cells(wsCurRow, wsMachineability).value = CDec(getFieldInfo(wsMachineability, currentField)) 'parse value of this field
-                                    'End If
-                                ElseIf MyRegExMatcher("TiltKLSLockThickness:", currentField) Then
-                                    'do nothing - just need to go to next line
-                                ElseIf MyRegExMatcher("Thickness:", currentField) Then
-                                    ws.cells(wsCurRow, wsThickness).value = CDec(getFieldInfo(wsThickness, currentField)) 'parse value of this field
-                                ElseIf MyRegExMatcher("Pierces:", currentField) Then
-                                    ws.cells(wsCurRow, wsPierces).value = CInt(getFieldInfo(wsPierces, currentField)) 'parse value of this field
-                                ElseIf MyRegExMatcher("Cutting model used:", currentField)
-                                    ws.cells(wsCurRow, wsCutModel).value = CInt(getFieldInfo(wsCutModel, currentField)) 'parse value of this field
-                                ElseIf MyRegExMatcher("EtchSpeed:", currentField)
-                                    ws.cells(wsCurRow, wsEtchSpeed).value = CInt(getFieldInfo(wsEtchSpeed, currentField)) 'parse value of this field
-                                ElseIf MyRegExMatcher("Estimated time", currentField)
-                                    strToConvert = getFieldInfo(wsEstTime, currentField)
-                                    myDec = CDec(strToConvert)
-                                    ws.cells(wsCurRow, wsEstTime).value = Date.FromOADate(myDec / 1440.0) 'parse value of this field
-                                ElseIf MyRegExMatcher("Estimated cost", currentField)
-                                    ws.cells(wsCurRow, wsEstCost).value = getFieldInfo(wsEstCost, currentField) 'parse value of this field
-                                ElseIf MyRegExMatcher("Estimated abrasive", currentField)
-                                    ws.cells(wsCurRow, wsEstAbrasive).value = getFieldInfo(wsEstAbrasive, currentField) 'parse value of this field
-                                ElseIf MyRegExMatcher("Length of tool", currentField)
-                                    ws.cells(wsCurRow, wsTPLen).value = getFieldInfo(wsTPLen, currentField) 'parse value of this field
-                                ElseIf MyRegExMatcher("Length of cutting", currentField)
-                                    ws.cells(wsCurRow, wsCutLen).value = getFieldInfo(wsCutLen, currentField) 'parse value of this field
-                                ElseIf MyRegExMatcher("spent cutting", currentField)
-                                    strToConvert = getFieldInfo(wsTTSCutting, currentField)
-                                    myDec = CDec(strToConvert)
-                                    ws.cells(wsCurRow, wsTTSCutting).value = Date.FromOADate(myDec / 1440.0)
-                                ElseIf MyRegExMatcher("spent etching", currentField)
-                                    strToConvert = getFieldInfo(wsTTSEtching, currentField)
-                                    myDec = CDec(strToConvert)
-                                    ws.cells(wsCurRow, wsTTSEtching).value = Date.FromOADate(myDec / 1440.0)
-                                ElseIf MyRegExMatcher("spent travers", currentField)
-                                    strToConvert = getFieldInfo(wsTTSTraversing, currentField)
-                                    myDec = CDec(strToConvert)
-                                    ws.cells(wsCurRow, wsTTSTraversing).value = Date.FromOADate(myDec / 1440.0)
-                                ElseIf MyRegExMatcher("cycling", currentField)
-                                    strToConvert = getFieldInfo(wsTTSRelayCycles, currentField)
-                                    myDec = CDec(strToConvert)
-                                    ws.cells(wsCurRow, wsTTSRelayCycles).value = Date.FromOADate(myDec / 1440.0)
-                                End If
+                                        state = foundFileName
 
-                                If MyRegExMatcher(dryRunInd, currentField) Then
-                                    'This is a dry run - ignore it
-                                    'Clear all fields and begin parse all over
-                                    ws.range(ws.cells(wsCurRow, wsFolderName), ws.cells(wsCurRow, wsTTSRelayCycles)).ClearContents
-                                    state = beginParse
+                                        wsCurRow = wsCurRow + 1
 
-                                    'reduce the row count because the beginParse case will 
-                                    'increment it
-                                    wsCurRow = wsCurRow - 1
-                                ElseIf MyRegExMatcher(cutStartInd, currentField) Then
-                                    state = cutStarted
+                                        ws.cells(wsCurRow, wsMachineName).value = machineTextName
+                                        ws.cells(wsCurRow, wsFN).value =
+                                              Strings.Right(currentField, currentField.Length -
+                                                               currentField.LastIndexOf(":") - 1)
+                                        ws.cells(wsCurRow, wsFolderName).value = foundFile
 
-                                    myDateTime = ParseDateTime(currentRow(dateTimeField))
-                                    myDateValue = Date.Parse(myDateTime)
-                                    ws.cells(wsCurRow, wsCStart).value = myDateValue
+                                        ws.cells(wsCurRow, wsLoadTime).value = myDateValue
+                                        ws.cells(wsCurRow, wsDate).value = myDateValue.Date
 
-                                    'Save this to use in calculating different from start to stop (cutting time)
-                                    cStartTime = myDateValue
+                                        savedLoadTime = myDateValue
+                                    End If
+                                Case foundFileName
+                                    'We are capturing a LOT of data in this section.
+                                    'First things like material, machineability, etc.
+                                    'Finally when we find the cutStartInd we change state
+                                    Dim strToConvert As String
+                                    Dim myDec As Decimal
 
-                                End If
-                            Case cutStarted
+                                    If MyRegExMatcher("Material:", currentField) Then
+                                        ws.cells(wsCurRow, wsMaterial).value = getFieldInfo(wsMaterial, currentField) 'parse value of this field
+                                    ElseIf MyRegExMatcher("MaterialCategory:", currentField) Then
+                                        ws.cells(wsCurRow, wsMaterialCategory).value = getFieldInfo(wsMaterialCategory, currentField) 'parse value of this field
+                                        'The space after the : below is important
+                                        'On some OMAX-2 files they have <Enter Custom Ceramic/Carbide Machineability:>
+                                        'and we DON'T want to try to capture in that scenario
+                                    ElseIf MyRegExMatcher("Machineability: ", currentField) Then
+                                        'If Not MyRegExMatcher("Machineability:>", currentField) Then
+                                        'ws.cells(wsCurRow, wsMachineability).value = CDec(getFieldInfo(wsMachineability, currentField)) 'parse value of this field
+                                        'End If
+                                    ElseIf MyRegExMatcher("TiltKLSLockThickness:", currentField) Then
+                                        'do nothing - just need to go to next line
+                                    ElseIf MyRegExMatcher("Thickness:", currentField) Then
+                                        ws.cells(wsCurRow, wsThickness).value = CDec(getFieldInfo(wsThickness, currentField)) 'parse value of this field
+                                    ElseIf MyRegExMatcher("Pierces:", currentField) Then
+                                        ws.cells(wsCurRow, wsPierces).value = CInt(getFieldInfo(wsPierces, currentField)) 'parse value of this field
+                                    ElseIf MyRegExMatcher("Cutting model used:", currentField)
+                                        ws.cells(wsCurRow, wsCutModel).value = CInt(getFieldInfo(wsCutModel, currentField)) 'parse value of this field
+                                    ElseIf MyRegExMatcher("EtchSpeed:", currentField)
+                                        ws.cells(wsCurRow, wsEtchSpeed).value = CInt(getFieldInfo(wsEtchSpeed, currentField)) 'parse value of this field
+                                    ElseIf MyRegExMatcher("Estimated time", currentField)
+                                        strToConvert = getFieldInfo(wsEstTime, currentField)
+                                        myDec = CDec(strToConvert)
+                                        ws.cells(wsCurRow, wsEstTime).value = Date.FromOADate(myDec / 1440.0) 'parse value of this field
+                                    ElseIf MyRegExMatcher("Estimated cost", currentField)
+                                        ws.cells(wsCurRow, wsEstCost).value = getFieldInfo(wsEstCost, currentField) 'parse value of this field
+                                    ElseIf MyRegExMatcher("Estimated abrasive", currentField)
+                                        ws.cells(wsCurRow, wsEstAbrasive).value = getFieldInfo(wsEstAbrasive, currentField) 'parse value of this field
+                                    ElseIf MyRegExMatcher("Length of tool", currentField)
+                                        ws.cells(wsCurRow, wsTPLen).value = getFieldInfo(wsTPLen, currentField) 'parse value of this field
+                                    ElseIf MyRegExMatcher("Length of cutting", currentField)
+                                        ws.cells(wsCurRow, wsCutLen).value = getFieldInfo(wsCutLen, currentField) 'parse value of this field
+                                    ElseIf MyRegExMatcher("spent cutting", currentField)
+                                        strToConvert = getFieldInfo(wsTTSCutting, currentField)
+                                        myDec = CDec(strToConvert)
+                                        ws.cells(wsCurRow, wsTTSCutting).value = Date.FromOADate(myDec / 1440.0)
+                                    ElseIf MyRegExMatcher("spent etching", currentField)
+                                        strToConvert = getFieldInfo(wsTTSEtching, currentField)
+                                        myDec = CDec(strToConvert)
+                                        ws.cells(wsCurRow, wsTTSEtching).value = Date.FromOADate(myDec / 1440.0)
+                                    ElseIf MyRegExMatcher("spent travers", currentField)
+                                        strToConvert = getFieldInfo(wsTTSTraversing, currentField)
+                                        myDec = CDec(strToConvert)
+                                        ws.cells(wsCurRow, wsTTSTraversing).value = Date.FromOADate(myDec / 1440.0)
+                                    ElseIf MyRegExMatcher("cycling", currentField)
+                                        strToConvert = getFieldInfo(wsTTSRelayCycles, currentField)
+                                        myDec = CDec(strToConvert)
+                                        ws.cells(wsCurRow, wsTTSRelayCycles).value = Date.FromOADate(myDec / 1440.0)
+                                    End If
 
-                                afterCutStopLineCount = 0
+                                    If MyRegExMatcher(dryRunInd, currentField) Then
+                                        'This is a dry run - ignore it
+                                        'Clear all fields and begin parse all over
+                                        ws.range(ws.cells(wsCurRow, wsMachineName), ws.cells(wsCurRow, wsTTSRelayCycles)).ClearContents
+                                        state = beginParse
 
-                                'Initial IF is to handle 6:24:35PM -> 5:39:06 transition in file
-                                'H=-Omax-1-SD Design-Inner Field Tile-5217IF06 dated 6/19/14
-                                'Has and 'inches from abd home: and then 20 days later loaded.
-                                'Never had one of the typical finishes
-                                If MyRegExMatcher(pathStarted, currentField) Then
-                                    'This is an error.  Dump filename, etc.  Clear current row and start again.
+                                        'reduce the row count because the beginParse case will 
+                                        'increment it
+                                        wsCurRow = wsCurRow - 1
+                                    ElseIf MyRegExMatcher(cutStartInd, currentField) Then
+                                        state = cutStarted
 
-                                    'reset so we can look for the next row
-                                    state = beginParse
+                                        myDateTime = ParseDateTime(currentRow(dateTimeField))
+                                        myDateValue = Date.Parse(myDateTime)
+                                        ws.cells(wsCurRow, wsCStart).value = myDateValue
 
-                                ElseIf MyRegExMatcher(cutStopInd, currentField) Or
-                                    MyRegExMatcher(cutPauseInd, currentField) Then
+                                        'Save this to use in calculating different from start to stop (cutting time)
+                                        cStartTime = myDateValue
 
-                                    'Use ParseDateTime to remove the colon so date.Parse can read date/time
-                                    myDateTime = ParseDateTime(currentRow(dateTimeField))
-                                    myDateValue = Date.Parse(myDateTime)
+                                    End If
+                                Case cutStarted
 
-                                    state = cutStopped
+                                    afterCutStopLineCount = 0
 
-                                    ws.cells(wsCurRow, wsCStop).value = myDateValue
-
-                                    'Calculate time from cut start to cut stop
-                                    newtime = New Date
-                                    'timeDiff = myDateValue - cStartTime
-                                    'if added because file Oma-1-SD Design-Inner Field Tile-5217IF06 crashes here
-                                    timeDiff = myDateValue - Date.FromOADate(ws.cells(wsCurRow, wsCStart).value)
-                                    If (timeDiff.Days > 1) Then
+                                    'Initial IF is to handle 6:24:35PM -> 5:39:06 transition in file
+                                    'H=-Omax-1-SD Design-Inner Field Tile-5217IF06 dated 6/19/14
+                                    'Has and 'inches from abd home: and then 20 days later loaded.
+                                    'Never had one of the typical finishes
+                                    If MyRegExMatcher(pathStarted, currentField) Then
+                                        'This is an error.  Dump filename, etc.  Clear current row and start again.
 
                                         'reset so we can look for the next row
                                         state = beginParse
-                                        wsCurRow = wsCurRow + 1
 
-                                    Else
+                                    ElseIf MyRegExMatcher(cutStopInd, currentField) Or
+                                        MyRegExMatcher(cutPauseInd, currentField) Then
 
+                                        'Use ParseDateTime to remove the colon so date.Parse can read date/time
+                                        myDateTime = ParseDateTime(currentRow(dateTimeField))
+                                        myDateValue = Date.Parse(myDateTime)
+
+                                        state = cutStopped
+
+                                        ws.cells(wsCurRow, wsCStop).value = myDateValue
+
+                                        'Calculate time from cut start to cut stop
+                                        newtime = New Date
+                                        'timeDiff = myDateValue - cStartTime
+                                        'if added because file Oma-1-SD Design-Inner Field Tile-5217IF06 crashes here
+                                        timeDiff = myDateValue - Date.FromOADate(ws.cells(wsCurRow, wsCStart).value)
+                                        If (timeDiff.Days > 1) Then
+
+                                            'reset so we can look for the next row
+                                            state = beginParse
+                                            wsCurRow = wsCurRow + 1
+
+                                        Else
+
+                                            newtime = newtime.Add(timeDiff)
+                                            ws.cells(wsCurRow, wsTimeCutting).value = newtime
+
+                                            'Calculate time from when this file was opened to cut finished
+                                            newtime = New Date
+                                            timeDiff = myDateValue - Date.FromOADate(ws.cells(wsCurRow, wsLoadTime).value)
+                                            newtime = newtime.Add(timeDiff)
+                                            ws.cells(wsCurRow, wsLoadToCut).value = newtime
+                                        End If
+
+
+                                    ElseIf MyRegExMatcher(pathFinInd, currentField) Then
+                                        'Use ParseDateTime to remove the colon so date.Parse can read date/time
+                                        myDateTime = ParseDateTime(currentRow(dateTimeField))
+                                        myDateValue = Date.Parse(myDateTime)
+
+                                        state = pathFinished
+
+                                        ws.cells(wsCurRow, wsCStop).value = myDateValue
+
+                                        'Calculate time from cut start to cut stop
+                                        newtime = New Date
+                                        'timeDiff = myDateValue - cStartTime
+                                        timeDiff = myDateValue - Date.FromOADate(ws.cells(wsCurRow, wsCStart).value)
+                                        'timeDiff = TimeSerial(myDateValue.Hour, myDateValue.Minute, myDateValue.Second) - TimeSerial(cStartTime.Hour, cStartTime.Minute, cStartTime.Second)
                                         newtime = newtime.Add(timeDiff)
                                         ws.cells(wsCurRow, wsTimeCutting).value = newtime
 
@@ -290,115 +335,96 @@ Module Module1
                                         timeDiff = myDateValue - Date.FromOADate(ws.cells(wsCurRow, wsLoadTime).value)
                                         newtime = newtime.Add(timeDiff)
                                         ws.cells(wsCurRow, wsLoadToCut).value = newtime
+
+                                        'Also capturing Finish time - probably redundant, but just in case
+                                        'Could be useful in determining how often a part goes from start to
+                                        'finish vs. non-finished cuts - usually indicating problem
+                                        'Use ParseDateTime to remove the colon so date.Parse can read date/time
+                                        ws.cells(wsCurRow, wsCFinish).value = myDateValue
+                                        ws.cells(wsCurRow, wsFinishCol).value = "Finish"
                                     End If
 
+                                Case cutStopped
+                                    'This is very similar to pathFinished below.  We found either cutStopInd
+                                    'or cutPauseInd.  If we find "Inches from Abs Home" in the next three
+                                    'lines, handle it.  Otherwise state becomes beginParse again
+                                    If afterCutStopLineCount < 4 Then
+                                        'if we find the cutStartInd (inches from Abs Home) create new row, copy
+                                        'from previous and look for the next cut stop indicator
+                                        If MyRegExMatcher(cutStartInd, currentField) Then
+                                            state = cutStarted
 
-                                ElseIf MyRegExMatcher(pathFinInd, currentField) Then
-                                    'Use ParseDateTime to remove the colon so date.Parse can read date/time
-                                    myDateTime = ParseDateTime(currentRow(dateTimeField))
-                                    myDateValue = Date.Parse(myDateTime)
+                                            'Use ParseDateTime to remove the colon so date.Parse can read date/time
+                                            myDateTime = ParseDateTime(currentRow(dateTimeField))
+                                            myDateValue = Date.Parse(myDateTime)
 
-                                    state = pathFinished
+                                            'Capture data from this row to new row. 
+                                            ws.range(ws.cells(wsCurRow + 1, wsMachineName), ws.cells(wsCurRow + 1, wsTTSRelayCycles)).value =
+                                                ws.range(ws.cells(wsCurRow, wsMachineName), ws.cells(wsCurRow, wsTTSRelayCycles)).value
+                                            'except clear out the FINISH-related fields since this isn't a path finish
+                                            ws.cells(wsCurRow + 1, wsCFinish).ClearContents
+                                            ws.cells(wsCurRow + 1, wsFinishCol).ClearContents
 
-                                    ws.cells(wsCurRow, wsCStop).value = myDateValue
+                                            ws.cells(wsCurRow + 1, wsDate).value = myDateValue.Date
+                                            ws.cells(wsCurRow + 1, wsLoadTime).value = myDateValue
+                                            ws.cells(wsCurRow + 1, wsCStart).value = myDateValue
+                                            wsCurRow = wsCurRow + 1
+                                            cStartTime = myDateValue
 
-                                    'Calculate time from cut start to cut stop
-                                    newtime = New Date
-                                    'timeDiff = myDateValue - cStartTime
-                                    timeDiff = myDateValue - Date.FromOADate(ws.cells(wsCurRow, wsCStart).value)
-                                    'timeDiff = TimeSerial(myDateValue.Hour, myDateValue.Minute, myDateValue.Second) - TimeSerial(cStartTime.Hour, cStartTime.Minute, cStartTime.Second)
-                                    newtime = newtime.Add(timeDiff)
-                                    ws.cells(wsCurRow, wsTimeCutting).value = newtime
+                                            'since we are starting a new entry, save new load time
+                                            savedLoadTime = myDateValue
+                                        End If
+                                    Else
+                                        state = beginParse
+                                    End If
+                                    afterCutStopLineCount = afterCutStopLineCount + 1
+                                Case pathFinished
+                                    'Capture data from this row to new row. 
+                                    ws.range(ws.cells(wsCurRow + 1, wsMachineName), ws.cells(wsCurRow + 1, wsTTSRelayCycles)).value =
+                                        ws.range(ws.cells(wsCurRow, wsMachineName), ws.cells(wsCurRow, wsTTSRelayCycles)).value
+                                    'Except clear out the "finish"-related fields
+                                    ws.cells(wsCurRow + 1, wsCFinish).ClearContents
+                                    ws.cells(wsCurRow + 1, wsFinishCol).ClearContents
 
-                                    'Calculate time from when this file was opened to cut finished
-                                    newtime = New Date
-                                    timeDiff = myDateValue - Date.FromOADate(ws.cells(wsCurRow, wsLoadTime).value)
-                                    newtime = newtime.Add(timeDiff)
-                                    ws.cells(wsCurRow, wsLoadToCut).value = newtime
-
-                                    'Also capturing Finish time - probably redundant, but just in case
-                                    'Could be useful in determining how often a part goes from start to
-                                    'finish vs. non-finished cuts - usually indicating problem
-                                    'Use ParseDateTime to remove the colon so date.Parse can read date/time
-                                    ws.cells(wsCurRow, wsCFinish).value = myDateValue
-                                    ws.cells(wsCurRow, wsFinishCol).value = "Finish"
-                                End If
-
-                            Case cutStopped
-                                'This is very similar to pathFinished below.  We found either cutStopInd
-                                'or cutPauseInd.  If we find "Inches from Abs Home" in the next three
-                                'lines, handle it.  Otherwise state becomes beginParse again
-                                If afterCutStopLineCount < 4 Then
-                                    'if we find the cutStartInd (inches from Abs Home) create new row, copy
-                                    'from previous and look for the next cut stop indicator
                                     If MyRegExMatcher(cutStartInd, currentField) Then
-                                        state = cutStarted
 
+                                        'ONLY capture start time if this is a new cut  
+                                        'Log file will look like:
+                                        'inches from Abs Home: 
+                                        'Path Finished. It took 7.3400 min.
+                                        'inches from Abs Home: 
+                                        'Path Finished. It took 7.3410 min.
+                                        state = cutStarted
                                         'Use ParseDateTime to remove the colon so date.Parse can read date/time
                                         myDateTime = ParseDateTime(currentRow(dateTimeField))
                                         myDateValue = Date.Parse(myDateTime)
 
-                                        'Capture data from this row to new row. 
-                                        ws.range(ws.cells(wsCurRow + 1, wsFolderName), ws.cells(wsCurRow + 1, wsTTSRelayCycles)).value =
-                                            ws.range(ws.cells(wsCurRow, wsFolderName), ws.cells(wsCurRow, wsTTSRelayCycles)).value
-                                        'except clear out the FINISH-related fields since this isn't a path finish
-                                        ws.cells(wsCurRow + 1, wsCFinish).ClearContents
-                                        ws.cells(wsCurRow + 1, wsFinishCol).ClearContents
-
                                         ws.cells(wsCurRow + 1, wsDate).value = myDateValue.Date
-                                        ws.cells(wsCurRow + 1, wsLoadTime).value = myDateValue
                                         ws.cells(wsCurRow + 1, wsCStart).value = myDateValue
+                                        ws.cells(wsCurRow + 1, wsLoadTime).value = myDateValue
                                         wsCurRow = wsCurRow + 1
                                         cStartTime = myDateValue
 
                                         'since we are starting a new entry, save new load time
                                         savedLoadTime = myDateValue
+                                    Else
+                                        state = beginParse
                                     End If
-                                Else
-                                    state = beginParse
-                                End If
-                                afterCutStopLineCount = afterCutStopLineCount + 1
-                            Case pathFinished
-                                'Capture data from this row to new row. 
-                                ws.range(ws.cells(wsCurRow + 1, wsFolderName), ws.cells(wsCurRow + 1, wsTTSRelayCycles)).value =
-                                    ws.range(ws.cells(wsCurRow, wsFolderName), ws.cells(wsCurRow, wsTTSRelayCycles)).value
-                                'Except clear out the "finish"-related fields
-                                ws.cells(wsCurRow + 1, wsCFinish).ClearContents
-                                ws.cells(wsCurRow + 1, wsFinishCol).ClearContents
-
-                                If MyRegExMatcher(cutStartInd, currentField) Then
-
-                                    'ONLY capture start time if this is a new cut  
-                                    'Log file will look like:
-                                    'inches from Abs Home: 
-                                    'Path Finished. It took 7.3400 min.
-                                    'inches from Abs Home: 
-                                    'Path Finished. It took 7.3410 min.
-                                    state = cutStarted
-                                    'Use ParseDateTime to remove the colon so date.Parse can read date/time
-                                    myDateTime = ParseDateTime(currentRow(dateTimeField))
-                                    myDateValue = Date.Parse(myDateTime)
-
-                                    ws.cells(wsCurRow + 1, wsDate).value = myDateValue.Date
-                                    ws.cells(wsCurRow + 1, wsCStart).value = myDateValue
-                                    ws.cells(wsCurRow + 1, wsLoadTime).value = myDateValue
-                                    wsCurRow = wsCurRow + 1
-                                    cStartTime = myDateValue
-
-                                    'since we are starting a new entry, save new load time
-                                    savedLoadTime = myDateValue
-                                Else
-                                    state = beginParse
-                                End If
-                        End Select
-                        prevString = currentField
-                    End If
-                End While
-                MyReader.Close()
-            End Using
+                            End Select
+                            prevString = currentField
+                        End If
+                    End While
+                    MyReader.Close()
+                End Using
+            Next
         Next
 
-
+        'test sort
+        Dim wsO As Object = ws.range("a:ac").select()
+        wsO = objExcelApp.Selection
+        wsO.Sort(key1:=wsO.Columns(1), order1:=XlSortOrder.xlAscending,
+                 key2:=wsO.columns(5), order1:=XlSortOrder.xlAscending)
+        wsO.cells(wsCurRow, wsMachineName).select()
 
         wb.Close(SaveChanges:=True)
         objExcelApp.quit
@@ -465,19 +491,19 @@ Module Module1
         Return Strings.Left(myStr, colonIdx)
     End Function
 
-    Private Function readIniFile(Omax1Location As String, Omax2Location As String,
-                                 ExcelFilePath As String, outputFilePath As String)
+    Private Function readIniFile(ByRef howManyMachines As Integer, LogFileLocations As String(),
+                                 ByRef ExcelFilePath As String, ByRef outputFilePath As String)
 
         Using MyReader As New FileIO.TextFieldParser("C:\Users\Dan\Source\Repos\UpdateOmaxHistory\UpdateOmax.txt")
             MyReader.TextFieldType = FileIO.FieldType.Delimited
             MyReader.SetDelimiters("|")
 
             Dim fieldIdx, valueIdx As Int16
+            Dim numMachines As Integer
             Dim currentRow As String()
-            Dim machine1, machine2, ExcelFile, outputFile As String
+            Dim numMachineTxt, ExcelFile, outputFile As String
 
-            machine1 = "machine 1 history file location"
-            machine2 = "machine 2 history file location"
+            numMachineTxt = "how many machines"
             ExcelFile = "Excel file location"
 
             fieldIdx = 0
@@ -494,10 +520,18 @@ Module Module1
                     "is not valid and will be skipped.")
                 End Try
                 Select Case currentRow(fieldIdx)
-                    Case machine1
-                        Omax1Location = currentField
-                    Case machine2
-                        Omax2Location = currentField
+                    Case numMachineTxt
+                        howManyMachines = currentField
+                        For i = 0 To howManyMachines - 1
+                            Try
+                                currentRow = MyReader.ReadFields()
+                                currentField = currentRow(valueIdx)
+                            Catch ex As FileIO.MalformedLineException
+                                MsgBox("Line " & ex.Message &
+                                "is not valid and will be skipped.")
+                            End Try
+                            LogFileLocations(i) = currentField
+                        Next
                     Case ExcelFile
                         ExcelFilePath = currentField
                 End Select
@@ -508,7 +542,26 @@ Module Module1
 
     End Function
 
+    Private Function getLastOccurranceRow(thisWS As Object, searchValue As String, myRange As String) As Integer
+        Dim lastRow As Integer = 0
+
+        If Len(searchValue) > 0 Then
+            For Each c In thisWS.Range(myRange)
+                If searchValue = c.value Then
+                    lastRow = c.Row
+                End If
+                If Len(c.value) = 0 Then
+                    'First 0-length cell means last row with data
+                    Exit For
+                End If
+            Next
+            Return lastRow
+        End If
+
+    End Function
+
     Private Sub initFields()
+        wsMachineName = 1
         wsMaterial = 13
         wsMaterialCategory = 14
         wsMachineability = 15
