@@ -2,11 +2,14 @@
 Imports Microsoft.Office.Interop.Excel
 Imports Microsoft.Office.Interop
 
+
+
+
 Module Module1
 
     Dim wsMachineName, wsMaterial, wsMaterialCategory, wsMachineability, wsThickness, wsPierces,
         wsCutModel, wsEtchSpeed, wsEstTime, wsEstCost, wsEstAbrasive, wsTPLen,
-        wsCutLen, wsTTSCutting, wsTTSTraversing, wsTTSRelayCycles, wsTTSEtching As Integer
+        wsCutLen, wsTTSCutting, wsTTSTraversing, wsTTSRelayCycles, wsTTSEtching, wsJobID As Integer
 
     Sub Main()
         'Start parsing log files
@@ -83,7 +86,7 @@ Module Module1
         readIniFile(howManyMachines, LogFileLocations, ExcelFilePath, outputFilePath)
 
         wb = objExcelApp.Workbooks.Open(ExcelFilePath, ReadOnly:=False)
-        wb.activate
+        wb.Sheets("data").Activate
         ws = wb.activesheet
         ' add line to make ws the active sheet
         objExcelApp.Visible = True
@@ -419,12 +422,30 @@ Module Module1
             Next
         Next
 
-        'test sort
+        'Sort by machine name and then by load time.  Important because everything must
+        'be in order for the load to load time (a little below) formula to work properly
+        'The next 5 lines of code are an example of late binding
         Dim wsO As Object = ws.range("a:ac").select()
         wsO = objExcelApp.Selection
         wsO.Sort(key1:=wsO.Columns(1), order1:=XlSortOrder.xlAscending,
                  key2:=wsO.columns(5), order1:=XlSortOrder.xlAscending)
         wsO.cells(wsCurRow, wsMachineName).select()
+
+        'copy formulas for load to load and for job id
+        'Need to create wsSrcRange as range so it knows how to copy
+        Dim wsSrcRange As Range
+
+        'copying load to load formula
+        wsSrcRange = ws.cells(2, wsDurationLoaded)
+        wsSrcRange.Copy(ws.range(ws.cells(2, wsDurationLoaded), ws.cells(wsCurRow, wsDurationLoaded)))
+
+        'copying Job ID formula
+        wsSrcRange = ws.cells(2, wsJobID)
+        wsSrcRange.Copy(ws.range(ws.cells(2, wsJobID), ws.cells(wsCurRow, wsJobID)))
+
+        'update data source for pivot table and refresh
+        wb.Names("allData").refersToR1C1 = "=data!r1c1:r" & wsCurRow & "c" & wsJobID
+        wb.refreshAll
 
         wb.Close(SaveChanges:=True)
         objExcelApp.quit
@@ -499,7 +520,6 @@ Module Module1
             MyReader.SetDelimiters("|")
 
             Dim fieldIdx, valueIdx As Int16
-            Dim numMachines As Integer
             Dim currentRow As String()
             Dim numMachineTxt, ExcelFile, outputFile As String
 
@@ -578,6 +598,7 @@ Module Module1
         wsTTSEtching = 26
         wsTTSTraversing = 27
         wsTTSRelayCycles = 28
+        wsJobID = 29
     End Sub
 
 End Module
