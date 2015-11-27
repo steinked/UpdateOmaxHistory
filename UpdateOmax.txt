@@ -1,4 +1,5 @@
 how many machines| 2
-machine 1 history file location| C:\Users\Public\OMAX_Corporation\AllUserData\History
-machine 2 history file location| C:\Users\Public\OMAX_Corporation\Omax2 AllUserData
-Excel file location| C:\Users\Dan\Documents\autoHistory.xlsx
+machine 1 history file location| C:\Users\Dan Steinke\OneDrive\consulting\CEC\data\omax1
+machine 2 history file location| C:\Users\Dan Steinke\OneDrive\consulting\CEC\data\omax2
+Excel file location| C:\Users\Dan Steinke\OneDrive\consulting\CEC\autohistory.xlsx
+Sheet name to store data| data

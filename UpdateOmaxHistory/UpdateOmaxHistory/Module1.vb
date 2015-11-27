@@ -26,7 +26,7 @@ Module Module1
         Dim outputFilePath As String = " "
         Dim machineTextName As String
         Dim ver18, pathStarted, partFnInd, cutStartInd, pathFinInd, cutPauseInd, cutStopInd, dryRunInd As String
-        Dim beginParse, foundFileName, prevString, cutStarted, cutStopped, pathFinished As String
+        Dim beginParse, foundFileName, prevString, cutStarted, cutStopped, pathFinished, dataSheetName As String
         Dim LogFileLocations(10) As String
         Dim objExcelApp As Object
         Dim wb, ws As Object
@@ -83,10 +83,10 @@ Module Module1
         'initialize field indexes (declared in Public Class above)
         initFields()
 
-        readIniFile(howManyMachines, LogFileLocations, ExcelFilePath, outputFilePath)
+        readIniFile(howManyMachines, LogFileLocations, ExcelFilePath, outputFilePath, dataSheetName)
 
         wb = objExcelApp.Workbooks.Open(ExcelFilePath, ReadOnly:=False)
-        wb.Sheets("data").Activate
+        wb.Sheets(dataSheetName).Activate
         ws = wb.activesheet
         ' add line to make ws the active sheet
         objExcelApp.Visible = True
@@ -513,18 +513,20 @@ Module Module1
     End Function
 
     Private Function readIniFile(ByRef howManyMachines As Integer, LogFileLocations As String(),
-                                 ByRef ExcelFilePath As String, ByRef outputFilePath As String)
+                                 ByRef ExcelFilePath As String, ByRef outputFilePath As String, ByRef dataSheetName As String)
 
-        Using MyReader As New FileIO.TextFieldParser("C:\Users\Dan\Source\Repos\UpdateOmaxHistory\UpdateOmax.txt")
+        Using MyReader As New FileIO.TextFieldParser("C:\Users\Dan Steinke\Source\Repos\UpdateOmaxHistory\UpdateOmax.txt")
             MyReader.TextFieldType = FileIO.FieldType.Delimited
             MyReader.SetDelimiters("|")
 
             Dim fieldIdx, valueIdx As Int16
             Dim currentRow As String()
-            Dim numMachineTxt, ExcelFile, outputFile As String
+            Dim numMachineTxt, ExcelFile, outputFile, dataSheetNameText As String
 
             numMachineTxt = "how many machines"
             ExcelFile = "Excel file location"
+            dataSheetNameText = "Sheet name to store data"
+
 
             fieldIdx = 0
             valueIdx = 1
@@ -554,6 +556,8 @@ Module Module1
                         Next
                     Case ExcelFile
                         ExcelFilePath = currentField
+                    Case dataSheetNameText
+                        dataSheetName = currentField
                 End Select
 
             End While
