@@ -515,7 +515,7 @@ Module Module1
     Private Function readIniFile(ByRef howManyMachines As Integer, LogFileLocations As String(),
                                  ByRef ExcelFilePath As String, ByRef outputFilePath As String, ByRef dataSheetName As String)
 
-        Using MyReader As New FileIO.TextFieldParser("C:\Users\Dan Steinke\Source\Repos\UpdateOmaxHistory\UpdateOmax.txt")
+        Using MyReader As New FileIO.TextFieldParser("UpdateOmax.txt")
             MyReader.TextFieldType = FileIO.FieldType.Delimited
             MyReader.SetDelimiters("|")
 
